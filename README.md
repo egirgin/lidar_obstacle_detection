@@ -68,3 +68,20 @@ Saved config: **`lidar_obstacle_detection/rviz/lidar_ingress.rviz`**.
 ## Further detail
 
 See the package README: [`lidar_obstacle_detection/README.md`](lidar_obstacle_detection/README.md) (topics, QoS, algorithm layout, message README link).
+
+## Citation
+
+Related work was **poster-presented at ICRA 2025**, *Workshop of Field Robotics*. If you use this software or ideas from that line of work, please cite:
+
+T. Girgin, E. Girgin, and C. Kilic, “Learning Rock Pushability on Rough Planetary Terrain,” *arXiv preprint* arXiv:2505.09833, 2025. [https://arxiv.org/abs/2505.09833](https://arxiv.org/abs/2505.09833)
+
+BibTeX:
+
+```bibtex
+@article{girgin2025learning,
+  title={Learning Rock Pushability on Rough Planetary Terrain},
+  author={Girgin, Tuba and Girgin, Emre and Kilic, Cagri},
+  journal={arXiv preprint arXiv:2505.09833},
+  year={2025}
+}
+```
