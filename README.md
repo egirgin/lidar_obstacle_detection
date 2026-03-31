@@ -11,6 +11,18 @@ Stack of two packages in this repository:
 
 ---
 
+## Figures
+
+**RViz2** — point cloud in `base_link`, segmentation display, obstacle markers (bounding box + normal), and TF frames (`base_link`, `lidar_link`):
+
+![RViz2 obstacle detection](assets/screenshot.png)
+
+**Pipeline** — raw scan → intermediate processing → clustered obstacles (cosine similarity surface split + DBSCAN):
+
+![LiDAR processing pipeline](assets/pipeline.png)
+
+---
+
 ## Build
 
 From your ROS 2 workspace (parent of this `src` tree):
@@ -68,6 +80,8 @@ Saved config: **`lidar_obstacle_detection/rviz/lidar_ingress.rviz`**.
 ## Further detail
 
 See the package README: [`lidar_obstacle_detection/README.md`](lidar_obstacle_detection/README.md) (topics, QoS, algorithm layout, message README link).
+
+---
 
 ## Citation
 
