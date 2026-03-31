@@ -1,0 +1,19 @@
+# =============================================================================
+# Pip dependencies for lidar_obstacle_detection (beyond ROS 2 distro packages)
+# =============================================================================
+# Install:
+#   python3 -m pip install -r requirements.txt
+#
+# ROS 2 libraries (rclpy, sensor_msgs, geometry_msgs, std_msgs, visualization_msgs,
+# builtin_interfaces, tf2_ros, sensor_msgs_py, message packages, etc.) should be
+# installed from your distro, e.g.:
+#   sudo apt install ros-${ROS_DISTRO}-desktop   # or a minimal set from package.xml
+#   rosdep install --from-paths src --ignore-src -r -y
+#
+# Generated Python types for lidar_obstacle_detection_msgs come from colcon after
+# building that package (not from pip).
+# =============================================================================
+
+numpy>=1.21.0
+open3d>=0.17.0
+scikit-learn>=1.0.0

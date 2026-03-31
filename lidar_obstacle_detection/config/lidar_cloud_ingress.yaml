@@ -1,0 +1,257 @@
+# =============================================================================
+# lidar_cloud_ingress — default parameters (lidar_obstacle_detection)
+# =============================================================================
+# This file is loaded by launch (lidar_cloud_ingress.launch.py) into the node’s
+# ROS 2 parameter space. The node reads everything via declare_parameter /
+# get_parameter (no hard-coded tuning in code paths).
+#
+# Load manually:
+#   ros2 run lidar_obstacle_detection lidar_cloud_ingress --ros-args \
+#     --params-file $(ros2 pkg prefix lidar_obstacle_detection)/share/lidar_obstacle_detection/config/lidar_cloud_ingress.yaml
+#
+# Coordinate convention (output_cloud_frame_id, usually base_link):
+#   +X forward, +Y left, +Z up (REP-103 style). Forward “cheesecake” FOV is a
+#   horizontal sector centered on +X in the XY plane.
+#
+# Processing order (per incoming PointCloud2):
+#   1) Rigid transform: driver frame → output_cloud_frame_id (driver offset +
+#      lidar mount R|t; see driver_* and lidar_mount_tf_* below).
+#   2) Spatial filter: forward sector + max_depth (+ optional max_height,
+#      max_lateral corridor, min_forward_distance body crop).
+#   3) Voxel downsample (voxel_size) on that single scan.
+#   4) Temporal buffer: push scan; optionally publish merged cloud (temporal_*).
+# =============================================================================
+
+lidar_cloud_ingress:
+  ros__parameters:
+    # -------------------------------------------------------------------------
+    # Logging
+    # -------------------------------------------------------------------------
+    # When true, the node emits extra INFO via VerboseLog (ingress steps, point
+    # counts). Launch can override this with verbose:=true without editing YAML.
+    verbose: false
+
+    # -------------------------------------------------------------------------
+    # Topics
+    # -------------------------------------------------------------------------
+    # sensor_msgs/PointCloud2 subscription (rotating LiDAR / driver).
+    # Header frame_id is read-only; transform uses driver_* + mount below.
+    input_topic: "/utlidar/cloud"
+
+    # sensor_msgs/PointCloud2 publisher: filtered, optionally temporally merged
+    # points in output_cloud_frame_id (xyz float32).
+    output_topic: "/lidar_obstacle_detection/cloud_in_base"
+
+    # frame_id stamped on the output cloud. Must match the frame the rigid-body
+    # math uses (mount parent should match this; see lidar_mount_tf_parent_frame).
+    output_cloud_frame_id: "base_link"
+
+    # -------------------------------------------------------------------------
+    # Time / TF (RViz fixed frame)
+    # -------------------------------------------------------------------------
+    # RViz transforms PointCloud2 from header.frame_id into the fixed frame at
+    # header.stamp. If that stamp is the LiDAR driver time but odom→base_link is
+    # stamped on another clock (e.g. state estimator vs sensor), lookups fail when
+    # fixed frame is odom. Set true to stamp all outputs with get_clock().now() at
+    # publish time (same clock as dynamic TF if those nodes share use_sim_time).
+    # Rosbag: use_sim_time:=true on this node and ros2 bag play ... --clock so
+    # now() matches /tf. Tradeoff: stamp is no longer strict sensor acquisition time.
+    output_stamps_use_node_time: true
+
+    # -------------------------------------------------------------------------
+    # QoS, bandwidth, and “leakage” checks
+    # -------------------------------------------------------------------------
+    # Reliability strings: "reliable" or "best_effort". Depth = KEEP_LAST history.
+    #
+    # Finding unexpected load (computational or network):
+    #   • ros2 topic hz <topic>     — message rate (spot unexpected publishers).
+    #   • ros2 topic bw <topic>     — bandwidth (Humble+; if missing, use hz × avg msg size).
+    #   • ros2 topic info <topic> -v — endpoint count (multiple subscribers multiply work).
+    #   • ros2 doctor --report      — QoS / graph hints.
+    #   • top / htop / perf         — CPU when the node runs; compare with perception_enabled
+    #     and with publish_colored_segmented_cloud / publish_obstacle_markers off.
+    #   • /tf_static: lidar_mount_tf_republish_hz > 0 republishes static TF on a timer
+    #     (usually unnecessary); keep 0 if another node already publishes the same mount.
+    #   • Disable lazy-created topics: set publish_* false so DDS never advertises them
+    #     (this node creates perception publishers only when the matching publish_* is true).
+    #
+    # Input: match the LiDAR driver (usually best_effort + small depth).
+    input_qos_reliability: best_effort
+    input_qos_depth: 5
+    # Filtered output cloud (often reliable for recording; best_effort to reduce ACK traffic).
+    output_cloud_qos_reliability: reliable
+    output_cloud_qos_depth: 5
+    # Debug: segmented PointCloud2 + MarkerArray. Use reliable so RViz2 (default Reliable
+    # on these displays) matches the publisher; set best_effort only if subscribers use it.
+    perception_debug_qos_reliability: reliable
+    perception_debug_qos_depth: 2
+    # Semantic obstacles — reliable is typical for consumers.
+    obstacle_list_qos_reliability: reliable
+    obstacle_list_qos_depth: 5
+
+    # -------------------------------------------------------------------------
+    # Spatial filter + per-scan voxel (base_link_spatial_filter)
+    # -------------------------------------------------------------------------
+    # Total horizontal field-of-view in degrees, centered on +X. Half-angle =
+    # fov_deg/2 on each side in the XY plane. Points with x <= min_forward_x
+    # (tiny epsilon) are dropped as “behind” the robot.
+    fov_deg: 135.0
+
+    # Forward range cap along +X in meters: keep points with x <= max_depth.
+    # (Cheap proxy for “distance”; not Euclidean range from origin unless you
+    # treat it that way for your layout.)
+    max_depth: 2.0
+
+    # Open3D voxel grid leaf size in meters, applied per scan after the sector
+    # (and height) mask. Smaller → more points, more CPU downstream; larger →
+    # sparser cloud.
+    voxel_size: 0.05
+
+    # If false, max_height is ignored. If true, drop points with z > max_height
+    # (meters, in output_cloud_frame_id) to cap ceiling / overhang clutter.
+    max_height_enabled: true
+    max_height: -0.1
+
+    # If false, max_lateral is ignored. If true, keep only points with
+    # -max_lateral <= y <= +max_lateral (meters). +Y is left in REP-103 base_link;
+    # this trims wide returns to the sides (corridor / lane crop). Example:
+    # max_lateral: 1.0 → drop y > 1 or y < -1.
+    max_lateral_enabled: true
+    max_lateral: 1.0
+
+    # If false, min_forward_distance is ignored and only a tiny epsilon is used
+    # to drop points on/behind the x=0 plane in base_link. If true, drop points
+    # with x < min_forward_distance (meters) to remove self-hits on the robot
+    # body / structure near the base (e.g. 0.3 = keep points at least 30 cm ahead).
+    min_forward_distance_enabled: true
+    min_forward_distance: 0.3
+
+    # -------------------------------------------------------------------------
+    # Temporal merge (temporal_cloud_accumulator)
+    # -------------------------------------------------------------------------
+    # Rolling buffer length: concatenate the last N processed scans (after
+    # per-scan voxel). Use N > 1 for sparse rotating LiDAR to approximate a
+    # denser snapshot. Oldest scans drop when the buffer is full.
+    temporal_n_scans: 5
+
+    # Publish the merged output only every K-th incoming message (K >= 1).
+    # Buffer still updates every callback. K > 1 lowers output topic rate and
+    # subscriber load; merged cloud spans the last temporal_n_scans scans at
+    # publish time. Set K=1 to publish whenever the node publishes (subject to
+    # stride logic inside the node).
+    temporal_publish_every_n_inputs: 1
+
+    # After merging (and optional merge voxel): if > 0, uniformly subsample to
+    # at most this many points. 0 = no cap. Use to bound memory/CPU when N is
+    # large or scans are dense.
+    temporal_max_merged_points: 0
+
+    # If > 0: run an additional Open3D voxel downsample on the concatenated
+    # merged cloud (meters). 0 = skip. Reduces duplicate hits from overlapping
+    # scans; independent of per-scan voxel_size.
+    temporal_merge_voxel_size: 0.0
+
+    # -------------------------------------------------------------------------
+    # Visualization-only static TF
+    # -------------------------------------------------------------------------
+    # Child frame name for the optional static transform base_link → lidar_link.
+    # Does not affect point transform math; the node applies mount R|t directly
+    # to points. Disable duplicate TF if robot_state_publisher already publishes
+    # the same transform (publish_lidar_mount_static_tf: false).
+    lidar_link_frame: "lidar_link"
+
+    # -------------------------------------------------------------------------
+    # Driver cloud → lidar-aligned frame (before mount)
+    # -------------------------------------------------------------------------
+    # Applied first in the rigid chain: p_lidar = R_drv @ p_driver + t_drv.
+    # Units: meters. Use when the driver’s point coordinates are not already in
+    # the frame expected by the URDF/mount (often identity).
+    driver_cloud_to_lidar_link_xyz: [0.0, 0.0, 0.0]
+
+    # Roll, pitch, yaw extrinsic in radians (same convention as geometry_utils /
+    # extrinsic_rpy_to_rotation_matrix). Order applied as R from fixed-axis
+    # extrinsic definition used in the package.
+    driver_cloud_to_lidar_link_rpy_rad: [0.0, 0.0, 0.0]
+
+    # -------------------------------------------------------------------------
+    # Mount: output_cloud_frame_id → lidar_link (matches URDF fixed joint)
+    # -------------------------------------------------------------------------
+    # If true, publish static TF from lidar_mount_tf_parent_frame to
+    # lidar_link_frame for RViz. Set false if another node publishes it.
+    publish_lidar_mount_static_tf: true
+
+    # Parent frame of the static TF; should match output_cloud_frame_id so the
+    # published cloud and TF tree agree.
+    lidar_mount_tf_parent_frame: "base_link"
+
+    # Translation from parent to child (lidar_link), meters, in parent frame.
+    lidar_mount_tf_xyz: [0.28945, 0.0, -0.046825]
+
+    # Rotation from parent to child: roll, pitch, yaw radians.
+    lidar_mount_tf_rpy_rad: [0.0, 2.8782, 0.0]
+
+    # If > 0, republish static TF at this rate (Hz). If 0, behavior follows
+    # StaticMountTfPublisher (single publish / minimal republish—see that module
+    # for details). Use >0 if your tooling expects periodic static TF.
+    lidar_mount_tf_republish_hz: 0.0
+
+    # -------------------------------------------------------------------------
+    # Perception: surface normals, cosine split, DBSCAN (surface_obstacle_segmentation)
+    # -------------------------------------------------------------------------
+    # Master switch. When true, after the merged cloud is published on output_topic,
+    # the node runs Open3D normal estimation, orients normals along perception_up_axis,
+    # classifies dominant surface vs obstacles (|cos(n,n_ref)| vs cosine_threshold),
+    # clusters obstacle points with DBSCAN, and optionally publishes a colored cloud,
+    # RViz markers (AABB + mean ground normal under XY footprint), and ObstacleList.
+    perception_enabled: true
+
+    # Skip perception if merged point count is below this (saves CPU on tiny clouds).
+    perception_min_points: 40
+
+    # |dot(n, n_ref)| above this → labeled as dominant surface (ground); below → obstacle
+    # candidate. Typical 0.85–0.95; higher → stricter surface (more obstacle points).
+    cosine_threshold: 0.88
+
+    # Open3D hybrid normal search: radius (m) and max_nn neighbors.
+    normal_search_radius: 0.5
+    max_nn: 30
+
+    # DBSCAN on obstacle-only points (meters / min neighbors). Tune for LiDAR density.
+    dbscan_eps: 0.15
+    dbscan_min_points: 15
+
+    # Uniform scale of each cluster AABB about its center before taking the XY footprint
+    # for ground normals under the obstacle. 1.0 = tight DBSCAN AABB; 1.5 = 50% larger
+    # extent on each axis (more ground samples). Values <= 0 are treated as 1.0.
+    obstacle_bbox_scale: 1.50
+
+    # Spherical bin width (degrees) for grouping similar ground normals before the median.
+    # Larger → fewer bins, stronger “equalization” of close directions. 0 = skip binning
+    # and use component-wise median of raw normals in the footprint, then normalize.
+    surface_normal_bin_deg: 3.0
+
+    # Normals are flipped so dot(n, up) >= 0. Default +Z matches REP-103 base_link.
+    perception_up_axis: [0.0, 0.0, 1.0]
+
+    # If all zeros, n_ref is the median of oriented normals (dominant plane). Otherwise
+    # set a fixed unit direction (e.g. [0,0,1]) when the floor normal is known a priori.
+    perception_reference_normal_xyz: [0.0, 0.0, 0.0]
+
+    # Publish sensor_msgs/PointCloud2 with x,y,z,rgba (cluster colors). High bandwidth;
+    # default false for robot — set true for RViz debugging.
+    publish_colored_segmented_cloud: true
+    colored_segmented_cloud_topic: "/lidar_obstacle_detection/cloud_segmented"
+
+    # visualization_msgs/MarkerArray (AABB + normals). Default false on robot; true for RViz.
+    publish_obstacle_markers: true
+    obstacle_markers_topic: "/lidar_obstacle_detection/obstacle_markers"
+
+    # lidar_obstacle_detection_msgs/ObstacleList: std_msgs/Header (frame_id = output_cloud_frame_id)
+    # plus obstacles[]: AABB center (position), width/height/length, volume,
+    # surface_normals[0] = binned-median ground normal under scaled XY footprint when valid.
+    publish_obstacle_list: true
+    obstacle_list_topic: "/lidar_obstacle_detection/obstacle_list"
+
+    # RViz arrow length for surface normal; LINE_LIST line width for boxes (meters).
+    obstacle_normal_arrow_length: 0.35
+    obstacle_box_line_width: 0.02
