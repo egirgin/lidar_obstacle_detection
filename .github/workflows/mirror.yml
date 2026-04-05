@@ -22,7 +22,7 @@ jobs:
         with:
           app-id: ${{ secrets.ORG_APP_ID }}
           private-key: ${{ secrets.ORG_APP_PRIVATE_KEY }}
-          owner: SRGE # Target organization name
+          owner: srge-erau # Target organization name
           repositories: rock-push-affordance  # Target repository name (without the org prefix)
 
       - name: Push to Target
