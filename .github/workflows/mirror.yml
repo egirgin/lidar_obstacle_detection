@@ -1,0 +1,22 @@
+name: Mirror to Organization
+
+on:
+  push:
+    branches:
+      - main # Adjust if using a different default branch
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
+
+      - name: Push to Target
+        env:
+          TARGET_REPO: github.com/srge-erau/rock-push-affordance.git
+        run: |
+          git remote add mirror https://${{ secrets.ORG_REPO_TOKEN }}@${TARGET_REPO}
+          git push mirror main --force
