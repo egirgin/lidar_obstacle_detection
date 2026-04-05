@@ -3,7 +3,7 @@ name: Mirror to Organization
 on:
   push:
     branches:
-      - main # Adjust if using a different default branch
+      - main
 
 jobs:
   mirror:
@@ -14,11 +14,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 
-          persist-credentials: false # Add this lin
+          persist-credentials: false
+
+      - name: Generate Ephemeral Token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.ORG_APP_ID }}
+          private-key: ${{ secrets.ORG_APP_PRIVATE_KEY }}
+          owner: SRGE # Target organization name
+          repositories: rock-push-affordance  # Target repository name (without the org prefix)
 
       - name: Push to Target
         env:
           TARGET_REPO: github.com/srge-erau/rock-push-affordance.git
+          APP_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
-          git remote add mirror https://${{ secrets.ORG_REPO_TOKEN }}@${TARGET_REPO}
+          git remote add mirror https://x-access-token:${APP_TOKEN}@${TARGET_REPO}
           git push mirror main --force
